@@ -146,7 +146,7 @@ details.coach-setup summary{cursor:pointer;font-weight:800;font-size:13px;color:
     </div>
   </div>
   <div class="summary"><span id="playerStatus">Enter your name before submitting a score.</span><span>Scores submit to Coach Patterson</span></div>
-  <div class="note" style="margin-top:8px">Score reporting is connected to Coach Patterson.</div>
+  <div class="note" style="margin-top:8px">Score reporting is connected. Completed quiz scores can be submitted directly to Coach Patterson.</div>
 </section>
 
 <section class="panel">
@@ -422,7 +422,7 @@ let runDeck=[],runIndex=0,runAnswers={},runOptionMap={};
 let lastQuizReport=null,lastPmReport=null,lastRunReport=null;
 const REPORTING_KEY="spartan_score_reporting_v1";
 const PLAYER_KEY="spartan_player_profile_v1";
-const HARD_CODED_SCORE_ENDPOINT="https://script.google.com/a/macros/sstx.org/s/AKfycbzoU7cfg_VtlNVoLc0_57CO33eRdvrwD1FirjDTklkU0jlBkGhCjsTtoxuFQVpjCJy6_g/exec";
+const HARD_CODED_SCORE_ENDPOINT="https://script.google.com/macros/s/AKfycbzoU7cfg_VtlNVoLc0_57CO33eRdvrwD1FirjDTklkU0jlBkGhCjsTtoxuFQVpjCJy6_g/exec";
 const ATTEMPT_KEY="spartan_quiz_attempts_v2";
 const BEST_KEY="spartan_quiz_best_v2";
 let quizStartMs=0,quizTimerHandle=null,quizAnswerLog=[];
@@ -559,12 +559,12 @@ function buildBaseReport(extra){
     categoryLabel:categoryLabel()+" — "+difficultyLabel(),
     formationFilter:formation,
     submittedAt:new Date().toISOString(),
-    appVersion:"Spartan Football Playbook Trainer v4.10"
+    appVersion:"Spartan Football Playbook Trainer v4.11"
   },extra||{});
 }
 async function submitReport(report,statusId){
   const status=$(statusId);
-  const endpoint=$("scoreEndpoint").value.trim();
+  const endpoint=HARD_CODED_SCORE_ENDPOINT;
   const playerName=$("playerName").value.trim();
 
   if(!playerName){
@@ -572,38 +572,56 @@ async function submitReport(report,statusId){
     $("playerName").focus();
     return;
   }
+
   report.playerName=playerName;
   report.playerPosition=$("playerPosition").value.trim();
-  const body=new URLSearchParams();
+
+  status.textContent="Submitting score…";
+
+  const form=document.createElement("form");
+  form.method="POST";
+  form.action=endpoint;
+  form.target="scoreSubmitFrame";
+  form.style.display="none";
+
   Object.keys(report).forEach(k=>{
+    const input=document.createElement("input");
+    input.type="hidden";
+    input.name=k;
     const v=report[k];
-    body.append(k,Array.isArray(v)?v.join(" | "):(v==null?"":String(v)));
+    input.value=Array.isArray(v)?v.join(" | "):(v==null?"":String(v));
+    form.appendChild(input);
   });
 
-  status.textContent="Sending score…";
-  try{
-    await fetch(endpoint,{
-      method:"POST",
-      mode:"no-cors",
-      headers:{"Content-Type":"application/x-www-form-urlencoded;charset=UTF-8"},
-      body:body.toString()
-    });
-    status.textContent="Score submitted to Coach Patterson.";
-  }catch(err){
-    try{
-      const form=document.createElement("form");
-      form.method="POST";form.action=endpoint;form.target="scoreSubmitFrame";form.style.display="none";
-      for(const [k,v] of body.entries()){
-        const input=document.createElement("input");input.type="hidden";input.name=k;input.value=v;form.appendChild(input);
-      }
-      document.body.appendChild(form);form.submit();form.remove();
-      status.textContent="Score submission sent.";
-    }catch(e){
-      status.textContent="Could not send the score. Check internet connection and coach setup.";
+  const timeoutId=setTimeout(()=>{
+    if(status.textContent==="Submitting score…"){
+      status.textContent="Score was sent, but Google did not return a confirmation. Check the Scores sheet.";
     }
-  }
-}
+  },12000);
 
+  const handler=(event)=>{
+    const data=event.data||{};
+    if(data.type!=="spartan-score-result") return;
+    if(data.submissionId!==report.submissionId) return;
+
+    clearTimeout(timeoutId);
+    window.removeEventListener("message",handler);
+
+    if(data.ok){
+      status.textContent="✓ Score submitted successfully to Coach Patterson.";
+      status.style.color="#176b43";
+    }else{
+      status.textContent="Score submission failed: "+(data.message||"Unknown Google Apps Script error.");
+      status.style.color="#a12727";
+    }
+  };
+
+  window.addEventListener("message",handler);
+
+  document.body.appendChild(form);
+  form.submit();
+  setTimeout(()=>form.remove(),1000);
+}
 function shuffle(a){let x=a.slice();for(let i=x.length-1;i>0;i--){let j=Math.floor(Math.random()*(i+1));[x[i],x[j]]=[x[j],x[i]]}return x}
 function unique(a){return [...new Set(a)]}
 
